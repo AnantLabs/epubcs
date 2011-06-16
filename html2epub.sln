@@ -1,0 +1,32 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 10.00
+# Visual Studio 2008
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "html2epub", "html2epub\html2epub.csproj", "{CC4F4E87-9DB8-4323-8B3E-4868F2965657}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "libEpub", "libEpub\libEpub.csproj", "{ACAC6656-4484-4693-BA56-2861ADA8198A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SgmlReaderDll", "sgmlreaderdll\SgmlReaderDll.csproj", "{499527FF-AE52-450F-B3E3-4AD53E1712AD}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CC4F4E87-9DB8-4323-8B3E-4868F2965657}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CC4F4E87-9DB8-4323-8B3E-4868F2965657}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CC4F4E87-9DB8-4323-8B3E-4868F2965657}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CC4F4E87-9DB8-4323-8B3E-4868F2965657}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ACAC6656-4484-4693-BA56-2861ADA8198A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ACAC6656-4484-4693-BA56-2861ADA8198A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ACAC6656-4484-4693-BA56-2861ADA8198A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ACAC6656-4484-4693-BA56-2861ADA8198A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{499527FF-AE52-450F-B3E3-4AD53E1712AD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{499527FF-AE52-450F-B3E3-4AD53E1712AD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{499527FF-AE52-450F-B3E3-4AD53E1712AD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{499527FF-AE52-450F-B3E3-4AD53E1712AD}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
