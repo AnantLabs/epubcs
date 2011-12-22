@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Packaging;
+using System.Linq;
 
 namespace libEpub
 {
@@ -29,6 +30,7 @@ namespace libEpub
             using(var s = part.GetStream())
             {
                 file.Save(s);
+                _package.Flush();
             }
         }
 
@@ -45,6 +47,9 @@ namespace libEpub
 
         public void Dispose()
         {
+            var packagePartCollection = _package.GetParts();
+            var items = (from i in packagePartCollection
+                        select i.Uri.ToString()).ToArray();
             _package.Close();
         }
 

@@ -14,12 +14,28 @@ namespace html2epub
     {
         static void Main(string[] args)
         {
-            using(var f = File.Create("test.zip"))
-            using(var book = new Book(f){Title = "Test Book"})
+            List<string> parameters = args.Where(i => !string.IsNullOrEmpty(i) && i.StartsWith("-")).ToList();
+            var title =
+                parameters.Where(i => i.StartsWith("-title")).DefaultIfEmpty("-title=\"unknown\"").First().Split('=').
+                    Skip(1).DefaultIfEmpty("\"unknown\"").First();
+
+            var author =
+                parameters.Where(i => i.StartsWith("-author")).DefaultIfEmpty("-title=\"unknown\"").First().Split('=').
+                    Skip(1).DefaultIfEmpty("\"unknown\"").First();
+
+            using (var f = File.Create(string.Format("{0}.zip",title)))
+            using(var book = new Book(f){Title = title})
             {
-                book.Authors = new List<string>(){{"Test Author"}};
-                book.AddChapter(new StreamReader(File.OpenRead("2004-06-13-10-56.html")), "2004-06-13-10-56.html",OnImageLoading);
-                book.AddChapter(new StreamReader(File.OpenRead("section39.xhtml")), "section39.xhtml", OnImageLoading);
+                book.Authors = new List<string>(){{author}};
+                args.Where(i => !string.IsNullOrEmpty(i) && !i.StartsWith("-")).ToList().
+                ForEach(
+                    chapter => 
+                        book.AddChapter(
+                            new StreamReader(File.OpenRead(chapter),Encoding.GetEncoding("koi8-r")),
+                            chapter,
+                            OnImageLoading));
+//                book.AddChapter(new StreamReader(File.OpenRead("2004-06-13-10-56.html")), "2004-06-13-10-56.html",OnImageLoading);
+//                book.AddChapter(new StreamReader(File.OpenRead("section39.xhtml")), "section39.xhtml", OnImageLoading);
             }
             
 /*

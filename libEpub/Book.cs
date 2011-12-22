@@ -5,6 +5,7 @@ using System.IO.Packaging;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Serialization;
 using System.Xml.XPath;
@@ -35,8 +36,8 @@ namespace libEpub
 
             _title = "Untitled";
 
-            AddMetaInfo();
             AddMimeType();
+            AddMetaInfo();
             AddNotFoundImage();
 
             InitializeToc();
@@ -46,21 +47,21 @@ namespace libEpub
         private void InitializeContentOpf()
         {
             _contentOpf = new package()
-                              {
-                                  metadata = new packageMetadata(),
-                                  spine = new packageSpine()
-                                              {
-                                                  toc = "ncx",
-                                              },
-                                  guide = new packageGuide(){ reference = new packageGuideReference()
-                                                                              {
-                                                                                  href = "cover.xhtml",
-                                                                                  type = "cover",
-                                                                                  title = "conver"
-                                                                              }},
-                                  uniqueidentifier = "uidParam",
-                                  version = (decimal) 2.0,
-                              };
+              {
+                  metadata = new packageMetadata(),
+                  spine = new packageSpine()
+                      {
+                          toc = "ncx",
+                      },
+                  guide = new packageGuide(){ reference = new packageGuideReference()
+                      {
+                          href = "cover.xhtml",
+                          type = "cover",
+                          title = "conver"
+                      }},
+                  uniqueidentifier = "uidParam",
+                  version = "2.0",
+              };
         }
 
         private void AddNotFoundImage()
@@ -156,12 +157,22 @@ namespace libEpub
 
             AddNavigationPointToTableOfContents(fileName, chapterTitle);
 
-
+            CleanUpTags(document);
             AddCssReference(document, navigator);
             ResolveAndDownloadImages(document, onImageLoading);
             SaveDocument(document, fileName);
             AddContentOpfRecord(fileName);
             _chapterCounter++;
+        }
+
+        private void CleanUpTags(XmlDocument document)
+        {
+            var bodyTag = document.GetElementsByTagName("body").Cast<XmlNode>().DefaultIfEmpty(null).First();
+            if (bodyTag == null) return;
+            if(bodyTag.Attributes != null)
+            {
+                bodyTag.Attributes.RemoveAll();
+            }
         }
 
         private void AddContentOpfRecord(string fileName)
@@ -243,6 +254,18 @@ namespace libEpub
         private void AddCssReference(XmlDocument document, XPathNavigator navigator)
         {
             var headNode = navigator.SelectSingleNode("//head");
+
+            XmlNodeList linkElements = document.GetElementsByTagName("link");
+            if(linkElements != null && linkElements.Count > 0)
+            {
+                var linkElementsToRemove = (from XmlNode i in linkElements
+                               select i).ToList();
+                foreach (XmlNode element in linkElementsToRemove)
+                {
+                    element.ParentNode.RemoveChild(element);
+                }
+            }
+
             var linkElement = CreateLinkToStylesheet(document);
 
             if(headNode == null)
@@ -262,7 +285,7 @@ namespace libEpub
         {
             var navPoint = new ncxNavPoint()
                                {
-                                   content = new ncxNavPointContent() { src = fileName },
+                                   content = new ncxNavPointContent() { src = "OEBPS/" + fileName },
                                    playOrder = _chapterCounter.ToString(),
                                    id = string.Format("NavPoint-{0}", _chapterCounter.ToString()),
                                    navLabel = new ncxNavPointNavLabel() { text = chapterTitle },
@@ -287,8 +310,34 @@ namespace libEpub
                 var xmlTextWriter = XmlWriter.Create(s,settings);
                 document.Save(xmlTextWriter);
                 s.Position = 0;
+                ReformatAndCleanXhtml(s);
                 _archive.AddFile(string.Format("OEBPS/{0}", fileName), s, "application/xhtml+xml");
+
             }
+        }
+
+        private static Regex _noscript = new Regex("<\\/?script[^>]*>");
+        private static Regex _nometa = new Regex("<\\/?meta[^>]*>");
+        private static Regex _nocomment = new Regex("\\<![ \\r\\n\\t]*(--([^\\-]|[\\r\\n]|-[^\\-])*--[ \\r\\n\\t]*)\\>");
+        private static Regex _nocdata = new Regex(@"\<\!\[CDATA\[(?<text>[^\]]*)\]\]\>");
+
+        private void ReformatAndCleanXhtml(MemoryStream memoryStream)
+        {
+            memoryStream.Position = 0;
+            var xhtmlReader = new StreamReader(memoryStream);
+            var xhtmlData = xhtmlReader.ReadToEnd();
+            xhtmlData = xhtmlData.Replace("<html>", "<html xmlns=\"http://www.w3.org/1999/xhtml\">");
+            xhtmlData = _noscript.Replace(xhtmlData, "");
+            xhtmlData = _nometa.Replace(xhtmlData, "");
+            xhtmlData = _nocomment.Replace(xhtmlData, "");
+            xhtmlData = _nocdata.Replace(xhtmlData, "");
+            memoryStream.Position = 0;
+            memoryStream.SetLength(0);
+            var streamWriter = new StreamWriter(memoryStream);
+            streamWriter.Write(xhtmlData);
+            memoryStream.Flush();
+            streamWriter.Flush();
+            memoryStream.Position = 0;
         }
 
         private string GetChapterTitle(XPathNavigator navigator)
@@ -331,6 +380,13 @@ namespace libEpub
             _tableOfContents.navMap = _navigationPoints.ToArray();
             SerializeToArchive("toc.ncx", "text/xml", _tableOfContents);
 
+            _packageItems.Add(new packageItem()
+            {
+                href = "../toc.ncx",
+                id = "ncx",
+                mediatype = "application/x-dtbncx+xml"
+            });
+
             _contentOpf.manifest = _packageItems.ToArray();
             _contentOpf.spine.itemref = _itemReferences.ToArray();
 
@@ -353,6 +409,11 @@ namespace libEpub
                 var language = document.CreateElement("dc", "language", "http://purl.org/dc/elements/1.1/");
                 language.InnerText = "ru";
 
+                var id = document.CreateElement("dc","identifier","http://purl.org/dc/elements/1.1/");
+                id.SetAttribute("id", "uidParam");
+                id.InnerText = Guid.NewGuid().ToString();
+
+
                 var authors = Authors.Select(i =>
                                         {
                                             var author = document.CreateElement("dc", "creator","http://purl.org/dc/elements/1.1/");
@@ -368,6 +429,7 @@ namespace libEpub
                 metadata.AppendChild(title);
                 metadata.AppendChild(meta);
                 metadata.AppendChild(language);
+                metadata.AppendChild(id);
                 
                 authors.ForEach(i => metadata.AppendChild(i));
                 metadata.AppendChild(dateTime);
