@@ -1,7 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
-using System.IO.Packaging;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -10,12 +11,15 @@ using System.Xml;
 using System.Xml.Serialization;
 using System.Xml.XPath;
 using epub;
+using Ionic.Zip;
+using Ionic.Zlib;
 
 namespace libEpub
 {
     public class Book : IDisposable
     {
-        private readonly ZipArchive _archive;
+        private readonly Stream _bookStream;
+        private readonly ZipOutputStream _archive;
         private string _title;
         public string Title
         {
@@ -32,7 +36,9 @@ namespace libEpub
 
         public Book(Stream bookStream)
         {
-            _archive = new ZipArchive(bookStream,FileMode.CreateNew,CompressionOption.Normal);
+            _bookStream = bookStream;
+
+            _archive = new ZipOutputStream(bookStream);
 
             _title = "Untitled";
 
@@ -42,7 +48,35 @@ namespace libEpub
 
             InitializeToc();
             InitializeContentOpf();
+            
         }
+
+        private void AddCover()
+        {
+            var author = Authors == null ? "unknown" : Authors.First();
+            var bitmap = new Bitmap(200,320);
+            using(var g = Graphics.FromImage(bitmap))
+            {
+                g.FillRectangle(Brushes.White,0,0,200,320);
+                var font = new Font(FontFamily.GenericSerif, 10);
+                g.DrawString(author, font, Brushes.Black, 10, 10);
+                font = new Font(FontFamily.GenericSerif, 14);
+                g.DrawString(Title, font, Brushes.Black, 10, 50);
+            }
+            using(var memoryStream = new MemoryStream())
+            {
+                bitmap.Save(memoryStream, ImageFormat.Jpeg);
+                memoryStream.Flush();
+                memoryStream.Position = 0;
+                _archive.AddEntry("OEBPS/cover.jpg",memoryStream);
+            }
+        }
+
+        private void AddStyleSheet()
+        {
+            _archive.AddEntry("OEBPS/stylesheet.css", Assembly.GetExecutingAssembly().GetManifestResourceStream("libEpub.stylesheet.css"));
+        }
+
 
         private void InitializeContentOpf()
         {
@@ -55,7 +89,7 @@ namespace libEpub
                       },
                   guide = new packageGuide(){ reference = new packageGuideReference()
                       {
-                          href = "cover.xhtml",
+                          href = "cover.jpg",
                           type = "cover",
                           title = "conver"
                       }},
@@ -64,9 +98,10 @@ namespace libEpub
               };
         }
 
+
         private void AddNotFoundImage()
         {
-            _archive.AddFile("OEBPS/images/not-found.jpg", Assembly.GetExecutingAssembly().GetManifestResourceStream("libEpub.not-found.jpg"), "image/jpeg");
+            _archive.AddEntry("OEBPS/images/not-found.jpg", Assembly.GetExecutingAssembly().GetManifestResourceStream("libEpub.not-found.jpg"));
         }
 
         private List<ncxNavPoint>  _navigationPoints = new List<ncxNavPoint>();
@@ -93,7 +128,7 @@ namespace libEpub
                 var text = Encoding.UTF8.GetBytes("application/epub+zip");
                 mimeType.Write(text,0,text.Length);
                 mimeType.Position = 0;
-                _archive.AddFile("mimetype",mimeType,"text/plain");
+                _archive.AddEntry("mimetype", mimeType);
             }
         }
 
@@ -114,7 +149,7 @@ namespace libEpub
                                     };
                 containerInfo.Serialize(containerData,container);
                 containerData.Position = 0;
-                _archive.AddFile("META-INF/container.xml",containerData,"text/xml");
+                _archive.AddEntry("META-INF/container.xml", containerData);
             }
         }
 
@@ -165,6 +200,11 @@ namespace libEpub
             _chapterCounter++;
         }
 
+        private static string[] _allowedTags = 
+        {
+             "address", "blockquote", "del", "div", "dl", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "ins", "noscript", "ns:svg", "ol", "p", "pre", "script", "table", "ul", "html", "body"
+        };
+
         private void CleanUpTags(XmlDocument document)
         {
             var bodyTag = document.GetElementsByTagName("body").Cast<XmlNode>().DefaultIfEmpty(null).First();
@@ -172,6 +212,17 @@ namespace libEpub
             if(bodyTag.Attributes != null)
             {
                 bodyTag.Attributes.RemoveAll();
+            }
+
+            var nodes = document.GetElementsByTagName("a").Cast<XmlNode>().ToList();
+            foreach (var xmlNode in nodes)
+            {
+                var divElement = document.CreateElement("div");
+                divElement.InnerXml = xmlNode.InnerXml;
+                var styleAttirbute = document.CreateAttribute("style");
+                styleAttirbute.Value = "text-decoration:underline";
+                divElement.Attributes.Append(styleAttirbute);
+                xmlNode.ParentNode.ReplaceChild(divElement, xmlNode);
             }
         }
 
@@ -195,37 +246,62 @@ namespace libEpub
             var imageCounter = 1;
             foreach(var i in document.GetElementsByTagName("img").Cast<XmlNode>())
             {
-                if (i.Attributes == null || i.Attributes["src"] == null)
-                {
-                    var srcAttribute = document.CreateAttribute("src");
-                    srcAttribute.Value = "images/not-found.jpg";
-                    i.AppendChild(srcAttribute);
-                }
-                else
+                if(i.Attributes != null && i.Attributes["src"] != null)
                 {
                     var src = i.Attributes["src"].Value;
+                    i.Attributes.RemoveAll();
+                    i.Attributes.Append(document.CreateAttribute("src"));
 
-                    var imageName = string.Format("OEBPS/images/{0}{1}", Guid.NewGuid(), Path.GetExtension(src));
+                    var imageExt = Path.GetExtension(src);
+
+                    string imageName;
+                    
                     try
                     {
-                        using (var imageStream = new BufferedStream(onImageLoading(src)))
+                        
+                        if(imageExt != ".jpg" && imageExt != ".jpeg")
                         {
-                            _archive.AddFile(imageName, imageStream, "");
+                            using (var imageStream = new BufferedStream(onImageLoading(src)))
+                            {
+                                var image = Image.FromStream(imageStream);
+                                using(var jpegStream = new MemoryStream())
+                                {
+                                    image.Save(jpegStream, ImageFormat.Jpeg);
+                                    jpegStream.Flush();
+                                    jpegStream.Position = 0;
+                                    imageName = string.Format("OEBPS/images/{0}{1}", Guid.NewGuid(), ".jpg");
+                                    _archive.AddEntry(imageName, jpegStream);
+                                }
+                            }
                         }
-                        i.Attributes["src"].Value = imageName;
+                        else
+                        {
+                            imageName = string.Format("OEBPS/images/{0}{1}", Guid.NewGuid(), imageExt);
+                            using (var imageStream = new BufferedStream(onImageLoading(src)))
+                            {
+                                _archive.AddEntry(imageName, imageStream);
+                            }
+                        }
+                        i.Attributes["src"].Value = imageName.Replace("OEBPS/", "");
+                        _packageItems.Add(new packageItem()
+                        {
+                            href = i.Attributes["src"].Value,
+                            id = string.Format("imageId{0}_{1}", _chapterCounter, imageCounter),
+                            mediatype = GetMimeType(i.Attributes["src"].Value)
+                        });
                     }
-                    catch(Exception)
+                    catch (Exception)
                     {
                         i.Attributes["src"].Value = "images/not-found.jpg";
                     }
-
-
-                    _packageItems.Add(new packageItem()
-                                          {
-                                              href = i.Attributes["src"].Value,
-                                              id = string.Format("imageId{0}_{1}", _chapterCounter, imageCounter),
-                                              mediatype = GetMimeType(i.Attributes["src"].Value)
-                                          });
+                }
+                else
+                {
+                    if(i.Attributes != null)
+                        i.Attributes.RemoveAll();
+                    var srcAttribute = document.CreateAttribute("src");
+                    srcAttribute.Value = "images/not-found.jpg";
+                    i.AppendChild(srcAttribute);
                 }
                 imageCounter++;
             }
@@ -267,12 +343,13 @@ namespace libEpub
             }
 
             var linkElement = CreateLinkToStylesheet(document);
-
+            var htmlTag = document.GetElementsByTagName("html")[0];
+            if (htmlTag.Attributes != null)
+                htmlTag.Attributes.RemoveAll();
             if(headNode == null)
             {
                 var headElement = document.CreateElement("head", "");
                 headElement.AppendChild(linkElement);
-                var htmlTag = document.GetElementsByTagName("html")[0];
                 htmlTag.InnerXml = headElement.OuterXml + htmlTag.InnerXml;
             }
             else
@@ -311,7 +388,7 @@ namespace libEpub
                 document.Save(xmlTextWriter);
                 s.Position = 0;
                 ReformatAndCleanXhtml(s);
-                _archive.AddFile(string.Format("OEBPS/{0}", fileName), s, "application/xhtml+xml");
+                _archive.AddEntry(string.Format("OEBPS/{0}", fileName), s);
 
             }
         }
@@ -369,7 +446,7 @@ namespace libEpub
             {
                 xmlSerializer.Serialize(memoryStream,data);
                 memoryStream.Position = 0;
-                _archive.AddFile(fileName, memoryStream, contentType);
+                _archive.AddEntry(fileName, memoryStream);
             }
         }
 
@@ -386,6 +463,27 @@ namespace libEpub
                 id = "ncx",
                 mediatype = "application/x-dtbncx+xml"
             });
+            _packageItems.Add(new packageItem()
+              {
+                  href = "cover.jpg",
+                  id = "cover",
+                  mediatype = "image/jpeg"
+              });
+
+            _packageItems.Add(new packageItem()
+              {
+                  href = "stylesheet.css",
+                  id = "stylesheet",
+                  mediatype = "text/css",
+              });
+
+            _packageItems.Add(new packageItem()
+            {
+                href = "images/not-found.jpg",
+                id = "notfound",
+                mediatype = "image/jpeg",
+            });
+
 
             _contentOpf.manifest = _packageItems.ToArray();
             _contentOpf.spine.itemref = _itemReferences.ToArray();
@@ -439,18 +537,21 @@ namespace libEpub
 
                 document.Save(ms);
                 ms.Position = 0;
-                _archive.AddFile("OEBPS/Content.opf", ms, "application/oebps-package+xml");
+                _archive.AddEntry("OEBPS/Content.opf", ms);
                 ms.Flush();
 
             }
-
-
+            AddCover();
+            AddStyleSheet();
+            _archive.Flush();
             _isClosed = true;
         }
+
 
         public void Dispose()
         {
             Close();
+            _archive.Close();
             _archive.Dispose();
         }
     }

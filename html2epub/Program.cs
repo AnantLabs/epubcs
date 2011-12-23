@@ -23,20 +23,25 @@ namespace html2epub
                 parameters.Where(i => i.StartsWith("-author")).DefaultIfEmpty("-title=\"unknown\"").First().Split('=').
                     Skip(1).DefaultIfEmpty("\"unknown\"").First();
 
-            using (var f = File.Create(string.Format("{0}.zip",title)))
-            using(var book = new Book(f){Title = title})
+            var encoding =
+                parameters.Where(i => i.StartsWith("-encoding")).DefaultIfEmpty("-encoding=").First().Split('=').
+                    Skip(1).DefaultIfEmpty(null).First();
+
+            using(var f = File.Create(string.Format("{0}.zip", title)))
             {
-                book.Authors = new List<string>(){{author}};
-                args.Where(i => !string.IsNullOrEmpty(i) && !i.StartsWith("-")).ToList().
-                ForEach(
-                    chapter => 
-                        book.AddChapter(
-                            new StreamReader(File.OpenRead(chapter),Encoding.GetEncoding("koi8-r")),
-                            chapter,
-                            OnImageLoading));
-//                book.AddChapter(new StreamReader(File.OpenRead("2004-06-13-10-56.html")), "2004-06-13-10-56.html",OnImageLoading);
-//                book.AddChapter(new StreamReader(File.OpenRead("section39.xhtml")), "section39.xhtml", OnImageLoading);
+                using (var book = new Book(f) { Title = title })
+                {
+                    book.Authors = new List<string>() { { author } };
+                    args.Where(i => !string.IsNullOrEmpty(i) && !i.StartsWith("-")).ToList().
+                    ForEach(
+                        chapter =>
+                            book.AddChapter(
+                                new StreamReader(File.OpenRead(chapter), string.IsNullOrEmpty(encoding) ? Encoding.Default : Encoding.GetEncoding(encoding)),
+                                chapter,
+                                OnImageLoading));
+                }
             }
+            
             
 /*
             if(args.Length != 2)
